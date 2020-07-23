@@ -10,6 +10,7 @@ try:
     get_user_settings, get_site_settings, get_tribot_settings, get_osbot_settings)
     from modules.captcha_solvers.twocaptcha import twocaptcha_solver
     from modules.captcha_solvers.anticaptcha import anticaptcha_solver
+    from modules.captcha_solvers.capmonster_cloud import capmonster_solver
     from modules.bot_client_cli.tribot_cli import use_tribot
     from modules.bot_client_cli.osbot_cli import use_osbot
     import requests
@@ -189,8 +190,10 @@ def create_account(proxy=None):
         if access_page(proxy):
             if captcha_service == 1:
                 payload = get_payload(twocaptcha_solver())
-            else:
+            elif captcha_service == 2:
                 payload = get_payload(anticaptcha_solver())
+            elif captcha_service == 3:
+                payload = get_payload(capmonster_solver())
             submit = requests.post(SITE_URL, data=payload, proxies=proxy)
             if submit.ok:
                 if check_account(submit):
@@ -205,8 +208,10 @@ def create_account(proxy=None):
         if access_page():
             if captcha_service == 1:
                 payload = get_payload(twocaptcha_solver())
-            else:
+            elif captcha_service == 2:
                 payload = get_payload(anticaptcha_solver())
+            elif captcha_service == 3:
+                payload = get_payload(capmonster_solver())
             submit = requests.post(SITE_URL, data=payload)
             if submit.ok:
                 if check_account(submit):

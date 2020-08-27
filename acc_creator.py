@@ -1,7 +1,8 @@
 """Creates accounts based on settings.ini using our logic modules"""
 #!/usr/bin/env python3
-
+import os
 import random
+import re
 import string
 import sys
 from socket import error as socket_error
@@ -13,15 +14,13 @@ try:
     from modules.captcha_solvers.capmonster_cloud import capmonster_solver
     from modules.bot_client_cli.tribot_cli import use_tribot
     from modules.bot_client_cli.osbot_cli import use_osbot
+    from incapsula import IncapSession, RecaptchaBlocked, WebsiteResourceParser  # TODO: Add incapsula to requirements.txt
     import requests
 except ImportError as error:
     print(error)
 
 
-HEADERS = {
-    'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_4)'
-                  ' AppleWebKit/537.36 (KHTML, like Gecko)'
-                  ' Chrome/81.0.4044.138 Safari/537.36'}
+HEADERS = {'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_4) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/81.0.4044.138 Safari/537.36'}
 try:
     PROXY_LIST = open("settings/proxy_list.txt", "r")
 except FileNotFoundError:
@@ -35,7 +34,11 @@ SITE_URL = get_site_settings()[1]
 TRIBOT_ACTIVE = get_tribot_settings()[0]
 OSBOT_ACTIVE = get_osbot_settings()[0]
 
-
+class MyResourceParser(WebsiteResourceParser):
+    # List of arguments to pass into BeautifulSoup().find() method.
+    extra_find_iframe_args = [
+        ('iframe', {'src': re.compile("/_Incapsula_Resource.*?\"")})
+    ]
 
 def get_ip() -> str:
     """
@@ -73,14 +76,21 @@ def access_page(proxy=None):
     returns:
     bool: True if the get request succeeds, false otherwise.
     """
+    session = IncapSession(resource_parser=MyResourceParser, user_agent=HEADERS)
+    #session.cookies.set('cookie-key', 'cookie-value')
     if USE_PROXIES:
         try:
-            response = requests.get(SITE_URL, proxies=proxy, headers=HEADERS)
+            response = session.get(SITE_URL, proxies=proxy, headers=HEADERS)
         except socket_error as error:
             print(error)
             print(f"Something with your proxy: {proxy} is likely bad.")
+        except RecaptchaBlocked as error:
+            print(f"Incapsula blocked recaptcha")
     else:
-        response = requests.get(SITE_URL, headers=HEADERS)
+        try:
+            response = session.get(SITE_URL, headers=HEADERS)
+        except RecaptchaBlocked as e:
+            print(f"Incapsula blocked recaptcha")
 
     if response.ok:
         print("\nLoaded page successfully. Continuing.")
@@ -97,16 +107,24 @@ def get_payload(captcha) -> dict:
     payload (dict): account creation payload data
     """
     # Get username/password options from settings.ini
-    email = get_user_settings()[5]
-    password = get_user_settings()[6]
+    if not os.path.isfile("words.txt"):
+        print("No words file. Exiting...")
+        exit()
+    else:
+        with open("words.txt", "r") as f:
+            words = f.read().split("\n")
 
-    if not email:  # We aren't using a custom username prefix -> make it random
-        email = ''.join([random.choice(string.ascii_lowercase + string.digits)
-                         for n in range(6)]) + '@gmail.com'
-    else:  # We're using a custom prefix for our usernames
-        email = email + str(random.randint(1000, 9999)) + '@gmail.com'
-    if not password:
-        password = email[:-10] + str(random.randint(1, 9999))
+    email1 = ""
+    password1 = ""
+
+    while len(email1) < 8:
+        email1 += random.choice(words)
+    email1 += str(random.randrange(1, 10000))
+    email1 += "@gmail.com"
+
+    while len(password1) < 8:
+        password1 += random.choice(words)
+    password1 += str(random.randrange(85, 10000))
 
     # Generate random birthday for the account
     day = str(random.randint(1, 25))
@@ -115,9 +133,9 @@ def get_payload(captcha) -> dict:
 
     payload = {
         'theme': 'oldschool',
-        'email1': email,
+        'email1': email1,
         'onlyOneEmail': '1',
-        'password1': password,
+        'password1': password1,
         'onlyOnePassword': '1',
         'day': day,
         'month': month,
@@ -170,9 +188,12 @@ def save_account(payload, proxy=None):
                              f" Proxy:{proxy}")
     else:
         formatted_payload = (f"\n{payload['email1']}:{payload['password1']}")
-
-    with open("created_accs.txt", "a+") as acc_list:
-        acc_list.write(formatted_payload)
+    try:
+        with open(os.path.join("C:", "\\Users", "Aidan", "Documents", "RSPeer", "cache", "data", "unfinished.txt"), "a+") as acc_list:
+            acc_list.write(formatted_payload)
+    except FileNotFoundError:
+        with open(os.path.join("/", "home", "zoruda", "RSPeer", "cache", "data", "unfinished.txt"), "a+") as acc_list:
+            acc_list.write(formatted_payload.replace("\n", "") + "\n")
     if acc_details_format:
         print(f"Created account and saved to created_accs.txt"
               f" with the following details:{formatted_payload}")
@@ -227,19 +248,22 @@ def create_account(proxy=None):
 def main():
     """Shows user info in the command line and runs the account creator"""
     counter = 0
-    try:
-        print(f"We'll make: {NUM_OF_ACCS} accounts.")
-        print(f"Will we use proxies?: {USE_PROXIES}")
-        print(f"Will we use Tribot CLI?: {TRIBOT_ACTIVE}")
-        print(f"Will we use OSBot CLI?: {OSBOT_ACTIVE}")
-        print("\nWant the multi-threaded version for fast account creation or need support for a problem? Join the discord - https://discord.gg/SjVjQvm")
+    print(f"We'll make: {NUM_OF_ACCS} accounts.")
+    print(f"Will we use proxies?: {USE_PROXIES}")
+    print(f"Will we use Tribot CLI?: {TRIBOT_ACTIVE}")
+    print(f"Will we use OSBot CLI?: {OSBOT_ACTIVE}")
+    print("\nWant the multi-threaded version for fast account creation or need support for a problem? Join the discord - https://discord.gg/SjVjQvm")
 
-        while counter < NUM_OF_ACCS:
+    while counter < NUM_OF_ACCS:
+        try:
             counter += 1
             create_account()
-    except KeyboardInterrupt:
-        print("User stopped the account creator.")
-
+        except KeyboardInterrupt:
+            print("User stopped the account creator.")
+        except UnboundLocalError:
+            print("Proxy failed, skipping")
+        except Exception as e:
+            print(e)
 
 if __name__ == "__main__":
     main()
